@@ -33,7 +33,7 @@ int open_seq(int in_ports[], int out_ports[], int num_in, int num_out)
   // Create input and output ports
   for (ii = 0; ii < num_in; ii++)
   {
-    sprintf(portname, "myrrh in %d", ii);
+    sprintf(portname, "myrrh input %d", ii);
     if ((in_ports[ii] = snd_seq_create_simple_port(seq_handle, portname,
               SND_SEQ_PORT_CAP_WRITE|SND_SEQ_PORT_CAP_SUBS_WRITE,
               SND_SEQ_PORT_TYPE_APPLICATION)) < 0)
@@ -43,7 +43,7 @@ int open_seq(int in_ports[], int out_ports[], int num_in, int num_out)
     }
   }
   for (ii = 0; ii < num_out; ii++) {
-    sprintf(portname, "myrrh out %d", ii);
+    sprintf(portname, "myrrh output %d", ii);
     if ((out_ports[ii] = snd_seq_create_simple_port(seq_handle, portname,
               SND_SEQ_PORT_CAP_READ|SND_SEQ_PORT_CAP_SUBS_READ,
               SND_SEQ_PORT_TYPE_APPLICATION)) < 0) {
@@ -57,7 +57,7 @@ int open_seq(int in_ports[], int out_ports[], int num_in, int num_out)
 
 void R_init_myrrh(DllInfo *info)
 {
-  Rprintf("Initializing ALSA...\n");
+  Rprintf("Initializing ALSA sequencer...\n");
   if (open_seq(in_ports, out_ports, 0, 1) < 0)
     seq_handle = NULL;
 }
