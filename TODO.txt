@@ -1,0 +1,9 @@
+- remove the dependecies on tuneR and sound packages (reimplement)
+  - loading/saving files through libsndfile
+- remove all the garbage and unify the the API
+- do sth about that awfully buggy timidity-based MIDI import
+- implement MIDI input
+- implement Humdrum (...?)
+- implement sound playback (through ALSA or JACK)
+- make it work in Windows
+  - the biggest problem is sound playback
