@@ -4,11 +4,38 @@
 
 MIR.MIDI.NoteOn  <- function(noteNumber) .C("noteOn",  as.integer(noteNumber))
 MIR.MIDI.NoteOff <- function(noteNumber) .C("noteOff", as.integer(noteNumber))
+
 MIR.MIDI.PlayNote <- function(noteNumber, duration = 0.5)
 {
   MIR.MIDI.NoteOn(noteNumber)
   Sys.sleep(duration)
   MIR.MIDI.NoteOff(noteNumber)
+}
+
+MIR.MIDI.PlayMatrix <- function(pianoRoll, hop = 0.1, minNoteNumber = 0)
+{
+  if(ncol(pianoRoll) < 2)
+    return
+  if(nrow(pianoRoll) + minNoteNumber - 1 > 127)
+    pianoRoll <- pianoRoll[1:(128-minNoteNumber),]
+  for(rowNumber in 1:nrow(pianoRoll))
+    if(pianoRoll[rowNumber,1] > 0)
+      MIR.MIDI.NoteOn(rowNumber + minNoteNumber - 1)
+  Sys.sleep(hop)
+  for(timePos in 2:ncol(pianoRoll))
+  {
+    for(rowNumber in 1:nrow(pianoRoll))
+    {
+      if((pianoRoll[rowNumber,timePos] > 0) && (pianoRoll[rowNumber,timePos-1] == 0))
+        MIR.MIDI.NoteOn(rowNumber + minNoteNumber - 1)
+      if((pianoRoll[rowNumber,timePos] == 0) && (pianoRoll[rowNumber,timePos-1] > 0))
+        MIR.MIDI.NoteOff(rowNumber + minNoteNumber - 1)
+    }
+    Sys.sleep(hop)
+  }
+  for(rowNumber in 1:nrow(pianoRoll))
+    if(pianoRoll[rowNumber,ncol(pianoRoll)] > 0)
+      MIR.MIDI.NoteOff(rowNumber + minNoteNumber - 1)
 }
 
 MIR.MIDI.Load <- function(filename)
