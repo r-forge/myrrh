@@ -1,0 +1,1 @@
+MIR.IO.LoadWave <- function(filename) loadSample(filename)
