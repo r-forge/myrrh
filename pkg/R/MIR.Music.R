@@ -7,12 +7,12 @@
 
 # Notes in diatonic scale
 .noteNames <- c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+.noteNamesEnharmonic <- c("C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B")
 
-## Tabele powiazanych kluczy molowych i durowych
+## Table of minor keys relative to a major keys
 #                   C    C#   D    D#  E   F   F#  G   G#  A   A#  B
 #                        Db        Eb          Gb      Ab      Bb
 .relativeMinor <- c(-10, -11, -12, -1, -2, -3, -4, -5, -6, -7, -8, -9)
-# molowy klucz powiazany z danym kluczem durowym
 
 #                   C   C#  D   D#  E   F   F#   G    G#   A   A#  B
 #                       Db      Eb          Gb        Ab       Bb
@@ -26,7 +26,7 @@
 .positionsCOFminor <- c(9, 4, 11, 6, 1, 8,  3, 10, 5, 0, 7,  2)   # minor scales
 
 .majorScale      <- c(1,0,1,0,1,1,0,1,0,1,0,1)   # a major scale
-.minorScale      <- c(1,0,1,0,1,1,0,1,0,1,0,1)   # a (?) minor scale
+.minorScale      <- c(1,0,1,1,0,1,0,1,1,0,1,0)   # a harmonic minor scale
 
 .majorTriad      <- c(1,0,0,0,1,0,0,1,0,0,0,0)   # Major third + Perfect fifth
 .minorTriad      <- c(1,0,0,1,0,0,0,1,0,0,0,0)   # Minor third + Perfect fifth 
@@ -42,6 +42,7 @@ MIR.Music.NoteName <- function(note) paste(.noteNames[note %% 12 + 1], floor(not
 
 # Returns name of a key given its number
 MIR.Music.KeyName <- function(key) ifelse(key > 0, paste(.noteNames[abs(key)], "-maj", sep=""), paste(.noteNames[abs(key)], "-min", sep=""))
+MIR.Music.KeyNameEnharmonic <- function(key) ifelse(key > 0, paste(.noteNamesEnharmonic[abs(key)], "-maj", sep=""), paste(.noteNamesEnharmonic[abs(key)], "-min", sep=""))
 
 names(.relativeMinor) <- MIR.Music.KeyName(1:12)
 names(.relativeMajor) <- MIR.Music.KeyName(-12:-1)
@@ -63,6 +64,12 @@ MIR.Music.KeyNumber <- function(key)
   if(!is.na(keyNumber))
     return(keyNumber)
   keyNumber <- match(key, MIR.Music.KeyName(-1:-12))
+  if(!is.na(keyNumber))
+    return(-keyNumber)
+  keyNumber <- match(key, MIR.Music.KeyNameEnharmonic(1:12))
+  if(!is.na(keyNumber))
+    return(keyNumber)
+  keyNumber <- match(key, MIR.Music.KeyNameEnharmonic(-1:-12))
   if(!is.na(keyNumber))
     return(-keyNumber)
   return(NA)  # key not found
@@ -171,20 +178,20 @@ MIR.Music.RelativeKey <- function(key)
   else
     return(NA)
 }
-                                                    #   C C#D D#E F F#G G#A A#B C
-MIR.Music.NoteBelongsToKey <- function(note, key)   #   c(1,0,1,0,1,1,0,1,0,1,0,1)
+
+MIR.Music.NoteBelongsToKey <- function(note, key)
 { 
   if(MIR.Music.IsMajorKey(key))
     return(.majorScale[(note - MIR.Music.KeyNumber(key) + 1) %% 12 + 1] == 1) 
   else if(MIR.Music.IsMinorKey(key))
-    return(.minorScale[(note - MIR.Music.KeyNumber(key) + 1) %% 12 + 1] == 1)
+    return(.minorScale[(note + MIR.Music.KeyNumber(key) + 1) %% 12 + 1] == 1)
   else
     return(FALSE)
 }
 
 MIR.Music.IsMajorTriad <- function(chord)
 {
-  if(!is.na(match(MIR.Music.ChordNumber(chord), c(1:7))))
+  if(!is.na(match(chord, c(1:7))))
     return(TRUE)
   else
     return(FALSE)
@@ -192,7 +199,7 @@ MIR.Music.IsMajorTriad <- function(chord)
 
 MIR.Music.IsMinorTriad <- function(chord)
 {
-  if(!is.na(match(MIR.Music.ChordNumber(chord), c(11:17))))
+  if(!is.na(match(chord, c(11:17))))
     return(TRUE)
   else
     return(FALSE)
@@ -200,7 +207,7 @@ MIR.Music.IsMinorTriad <- function(chord)
 
 MIR.Music.IsDiminishedTriad <- function(chord)
 {
-  if(!is.na(match(MIR.Music.ChordNumber(chord), c(21:27))))
+  if(!is.na(match(chord, c(21:27))))
     return(TRUE)
   else
     return(FALSE)
@@ -262,3 +269,145 @@ MIR.Music.NoteBelongsToChord <- function(note, key, chord)
   else
     return(FALSE)
 }
+
+# Lerdahl distance between chords belonging to the same key,
+# based on the TPS (Tonal Pitch Space) [1]
+MIR.Music.ChordDistance.TPS <- function(chord1, chord2, key)
+{
+  if(MIR.Music.IsMajorKey(key))
+  {
+    root1 <- (which(.majorScale == 1)[chord1 %% 10] + MIR.Music.KeyNumber(key) - 2) %% 12
+    root2 <- (which(.majorScale == 1)[chord2 %% 10] + MIR.Music.KeyNumber(key) - 2) %% 12
+  }
+  else
+  {
+    root1 <- (which(.minorScale == 1)[chord1 %% 10] - MIR.Music.KeyNumber(key) - 2) %% 12
+    root2 <- (which(.minorScale == 1)[chord2 %% 10] - MIR.Music.KeyNumber(key) - 2) %% 12
+  }
+  distanceInCOF <- MIR.Music.DistanceInCOF(root1 + 1, root2 + 1)
+  
+  .calculateThirdAndFifth <- function(chord, root)
+  {
+    if(MIR.Music.IsMajorTriad(chord))
+    {
+      third <- (root + which(.majorTriad == 1)[2] - 1) %% 12
+      fifth <- (root + which(.majorTriad == 1)[3] - 1) %% 12
+    }
+    else if(MIR.Music.IsMinorTriad(chord))
+    {
+      third <- (root + which(.minorTriad == 1)[2] - 1) %% 12
+      fifth <- (root + which(.minorTriad == 1)[3] - 1) %% 12
+    }
+    else if(MIR.Music.IsDiminishedTriad(chord))
+    {
+      third <- (root + which(.diminishedTriad == 1)[2] - 1) %% 12
+      fifth <- (root + which(.diminishedTriad == 1)[3] - 1) %% 12
+    }
+    else
+      return(c())
+    return(c(third, fifth))
+  }
+  
+  thirdAndFifth <- .calculateThirdAndFifth(chord1, root1)
+  if(length(thirdAndFifth) == 0)
+    return(Inf)
+  third1 <- thirdAndFifth[1]
+  fifth1 <- thirdAndFifth[2]
+  
+  cat("Root  1 = ", root1, " (", .noteNames[root1+1], ")\n", sep="")
+  cat("Third 1 = ", third1, " (", .noteNames[third1+1], ")\n", sep="")
+  cat("Fifth 1 = ", fifth1, " (", .noteNames[fifth1+1], ")\n", sep="")
+  if(!(MIR.Music.NoteBelongsToKey(third1, key) && MIR.Music.NoteBelongsToKey(fifth1, key)))
+  {
+    cat("'chord1' does not belong to key 'key'\n")
+    return(NaN)
+  }
+  
+  thirdAndFifth <- .calculateThirdAndFifth(chord2, root2)
+  if(length(thirdAndFifth) == 0)
+    return(Inf)
+  third2 <- thirdAndFifth[1]
+  fifth2 <- thirdAndFifth[2]
+
+  cat("Root  2 = ", root2, " (", .noteNames[root2+1], ")\n", sep="")
+  cat("Third 2 = ", third2, " (", .noteNames[third2+1], ")\n", sep="")
+  cat("Fifth 2 = ", fifth2, " (", .noteNames[fifth2+1], ")\n", sep="")
+  if(!(MIR.Music.NoteBelongsToKey(third2, key) && MIR.Music.NoteBelongsToKey(fifth2, key)))
+  {
+    cat("'chord2' does not belong to key 'key'\n")
+    return(NaN)
+  }
+  
+  cat("Distance in COF = ", distanceInCOF, "\n")
+  for(ii in 0:11)
+  {
+    if(ii == root1 && ii == root2)
+      cat(ii, "B ", sep="")
+    else if(ii == root1 && ii != root2)
+      cat(ii, "F ", sep="")
+    else if(ii != root1 && ii == root2)
+      cat(ii, "S ", sep="")
+    else
+      cat("   ")
+  }
+  cat("\n")
+  for(ii in 0:11)
+  {
+    if(!is.na(match(ii, c(root1, fifth1))) && !is.na(match(ii, c(root2, fifth2))))
+      cat(ii, "B ", sep="")
+    else if(!is.na(match(ii, c(root1, fifth1))) && is.na(match(ii, c(root2, fifth2))))
+      cat(ii, "F ", sep="")
+    else if(is.na(match(ii, c(root1, fifth1))) && !is.na(match(ii, c(root2, fifth2))))
+      cat(ii, "S ", sep="")
+    else
+      cat("   ")
+  }
+  cat("\n")
+  for(ii in 0:11)
+  {
+    if(!is.na(match(ii, c(root1, fifth1, third1))) && !is.na(match(ii, c(root2, fifth2, third2))))
+      cat(ii, "B ", sep="")
+    else if(!is.na(match(ii, c(root1, fifth1, third1))) && is.na(match(ii, c(root2, fifth2, third2))))
+      cat(ii, "F ", sep="")
+    else if(is.na(match(ii, c(root1, fifth1, third1))) && !is.na(match(ii, c(root2, fifth2, third2))))
+      cat(ii, "S ", sep="")
+    else
+      cat("   ")
+  }
+  cat("\n")
+  for(ii in 0:11)
+  {
+    if(MIR.Music.NoteBelongsToKey(ii, key))
+      cat(ii, "  ", sep="")
+    else
+      cat("   ")
+  }
+  cat("\n")
+  for(ii in 0:11)
+    cat(ii, "  ", sep="")
+  cat("\n")
+  
+  disagreeingNotes <- 0
+  if(root1 != root2)
+    disagreeingNotes <- disagreeingNotes + 3
+  if(fifth1 != fifth2)
+    disagreeingNotes <- disagreeingNotes + 2
+  if(fifth1 == root2)
+    disagreeingNotes <- disagreeingNotes - 2
+  if(fifth2 == root1)
+    disagreeingNotes <- disagreeingNotes - 2
+  if(third1 != third2)
+    disagreeingNotes <- disagreeingNotes + 1
+  if(third1 == root2)
+    disagreeingNotes <- disagreeingNotes - 1
+  if(third1 == fifth2)
+    disagreeingNotes <- disagreeingNotes - 1
+  if(third2 == root1)
+    disagreeingNotes <- disagreeingNotes - 1
+  if(third2 == fifth1)
+    disagreeingNotes <- disagreeingNotes - 1
+  return(disagreeingNotes + distanceInCOF)
+}
+
+# References:
+#  [1] F.Lerdahl. "Tonal Pitch Space". Oxford University Press, 2001
