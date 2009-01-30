@@ -62,26 +62,26 @@ void R_init_myrrh(DllInfo *info)
     seq_handle = NULL;
 }
 
-void noteOn(int *noteNumber)
+void noteOn(int *noteNumber, int *velocity)
 {
   snd_seq_event_t ev;
 
   snd_seq_ev_clear(&ev);
   snd_seq_ev_set_source(&ev, out_ports[0]);
-  snd_seq_ev_set_noteon(&ev, 0, *noteNumber, 127);
+  snd_seq_ev_set_noteon(&ev, 0, *noteNumber, *velocity);
   snd_seq_ev_set_subs(&ev);     // set broadcasting to subscribers
   snd_seq_ev_set_direct(&ev);   // no scheduling
 
   snd_seq_event_output_direct(seq_handle, &ev);
 }
 
-void noteOff(int *noteNumber)
+void noteOff(int *noteNumber, int *velocity)
 {
   snd_seq_event_t ev;
 
   snd_seq_ev_clear(&ev);
   snd_seq_ev_set_source(&ev, out_ports[0]);
-  snd_seq_ev_set_noteoff(&ev, 0, *noteNumber, 127);
+  snd_seq_ev_set_noteoff(&ev, 0, *noteNumber, *velocity);
   snd_seq_ev_set_subs(&ev);     // set broadcasting to subscribers
   snd_seq_ev_set_direct(&ev);   // no scheduling
 
