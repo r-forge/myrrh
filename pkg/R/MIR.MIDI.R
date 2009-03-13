@@ -2,8 +2,8 @@
 #TODO:ustawianie precyzji macierzy midi
 #TODO:wywalic niepotrzebny kod timidity
 
-MIR.MIDI.NoteOn  <- function(noteNumber, velocity) .C("noteOn",  as.integer(noteNumber), as.integer(velocity*127))
-MIR.MIDI.NoteOff <- function(noteNumber, velocity) .C("noteOff", as.integer(noteNumber), as.integer(velocity*127))
+MIR.MIDI.NoteOn  <- function(noteNumber, velocity = 1.0) .C("noteOn",  as.integer(noteNumber), as.integer(velocity*127))
+MIR.MIDI.NoteOff <- function(noteNumber, velocity = 1.0) .C("noteOff", as.integer(noteNumber), as.integer(velocity*127))
 
 MIR.MIDI.PlayNote <- function(noteNumber, duration = 0.5)
 {

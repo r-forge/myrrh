@@ -12,7 +12,7 @@ MIR.Convert.MIDInoteFromFrequency <- function(freq) return(noteFromFF(freq))
 ## Converts piano key number to frequency.
 ## Assumes 12-Tone Equal Temperamet scale.
 ## Assumes 88-key piano keyboard.
-MIR.Convert.FrequencyFromPianokey <- function(pianokey) MIR.Convert.FrequencyFromNote(pianokey - 49)
+MIR.Convert.FrequencyFromPianokey <- function(pianokey) MIR.Convert.FrequencyFromMIDInote(pianokey - 49)
 
 ###################################################
 ## Converts frequency to piano key number.
