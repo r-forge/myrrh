@@ -314,9 +314,9 @@ MIR.Music.ChordDistance.TPS <- function(chord1, chord2, key)
   third1 <- thirdAndFifth[1]
   fifth1 <- thirdAndFifth[2]
   
-  cat("Root  1 = ", root1, " (", .noteNames[root1+1], ")\n", sep="")
-  cat("Third 1 = ", third1, " (", .noteNames[third1+1], ")\n", sep="")
-  cat("Fifth 1 = ", fifth1, " (", .noteNames[fifth1+1], ")\n", sep="")
+#   cat("Root  1 = ", root1, " (", .noteNames[root1+1], ")\n", sep="")
+#   cat("Third 1 = ", third1, " (", .noteNames[third1+1], ")\n", sep="")
+#   cat("Fifth 1 = ", fifth1, " (", .noteNames[fifth1+1], ")\n", sep="")
   if(!(MIR.Music.NoteBelongsToKey(third1, key) && MIR.Music.NoteBelongsToKey(fifth1, key)))
   {
     cat("'chord1' does not belong to key 'key'\n")
@@ -329,63 +329,63 @@ MIR.Music.ChordDistance.TPS <- function(chord1, chord2, key)
   third2 <- thirdAndFifth[1]
   fifth2 <- thirdAndFifth[2]
 
-  cat("Root  2 = ", root2, " (", .noteNames[root2+1], ")\n", sep="")
-  cat("Third 2 = ", third2, " (", .noteNames[third2+1], ")\n", sep="")
-  cat("Fifth 2 = ", fifth2, " (", .noteNames[fifth2+1], ")\n", sep="")
+#   cat("Root  2 = ", root2, " (", .noteNames[root2+1], ")\n", sep="")
+#   cat("Third 2 = ", third2, " (", .noteNames[third2+1], ")\n", sep="")
+#   cat("Fifth 2 = ", fifth2, " (", .noteNames[fifth2+1], ")\n", sep="")
   if(!(MIR.Music.NoteBelongsToKey(third2, key) && MIR.Music.NoteBelongsToKey(fifth2, key)))
   {
     cat("'chord2' does not belong to key 'key'\n")
     return(NaN)
   }
   
-  cat("Distance in COF = ", distanceInCOF, "\n")
-  for(ii in 0:11)
-  {
-    if(ii == root1 && ii == root2)
-      cat(ii, "B ", sep="")
-    else if(ii == root1 && ii != root2)
-      cat(ii, "F ", sep="")
-    else if(ii != root1 && ii == root2)
-      cat(ii, "S ", sep="")
-    else
-      cat("   ")
-  }
-  cat("\n")
-  for(ii in 0:11)
-  {
-    if(!is.na(match(ii, c(root1, fifth1))) && !is.na(match(ii, c(root2, fifth2))))
-      cat(ii, "B ", sep="")
-    else if(!is.na(match(ii, c(root1, fifth1))) && is.na(match(ii, c(root2, fifth2))))
-      cat(ii, "F ", sep="")
-    else if(is.na(match(ii, c(root1, fifth1))) && !is.na(match(ii, c(root2, fifth2))))
-      cat(ii, "S ", sep="")
-    else
-      cat("   ")
-  }
-  cat("\n")
-  for(ii in 0:11)
-  {
-    if(!is.na(match(ii, c(root1, fifth1, third1))) && !is.na(match(ii, c(root2, fifth2, third2))))
-      cat(ii, "B ", sep="")
-    else if(!is.na(match(ii, c(root1, fifth1, third1))) && is.na(match(ii, c(root2, fifth2, third2))))
-      cat(ii, "F ", sep="")
-    else if(is.na(match(ii, c(root1, fifth1, third1))) && !is.na(match(ii, c(root2, fifth2, third2))))
-      cat(ii, "S ", sep="")
-    else
-      cat("   ")
-  }
-  cat("\n")
-  for(ii in 0:11)
-  {
-    if(MIR.Music.NoteBelongsToKey(ii, key))
-      cat(ii, "  ", sep="")
-    else
-      cat("   ")
-  }
-  cat("\n")
-  for(ii in 0:11)
-    cat(ii, "  ", sep="")
-  cat("\n")
+#   cat("Distance in COF = ", distanceInCOF, "\n")
+#   for(ii in 0:11)
+#   {
+#     if(ii == root1 && ii == root2)
+#       cat(ii, "B ", sep="")
+#     else if(ii == root1 && ii != root2)
+#       cat(ii, "F ", sep="")
+#     else if(ii != root1 && ii == root2)
+#       cat(ii, "S ", sep="")
+#     else
+#       cat("   ")
+#   }
+#   cat("\n")
+#   for(ii in 0:11)
+#   {
+#     if(!is.na(match(ii, c(root1, fifth1))) && !is.na(match(ii, c(root2, fifth2))))
+#       cat(ii, "B ", sep="")
+#     else if(!is.na(match(ii, c(root1, fifth1))) && is.na(match(ii, c(root2, fifth2))))
+#       cat(ii, "F ", sep="")
+#     else if(is.na(match(ii, c(root1, fifth1))) && !is.na(match(ii, c(root2, fifth2))))
+#       cat(ii, "S ", sep="")
+#     else
+#       cat("   ")
+#   }
+#   cat("\n")
+#   for(ii in 0:11)
+#   {
+#     if(!is.na(match(ii, c(root1, fifth1, third1))) && !is.na(match(ii, c(root2, fifth2, third2))))
+#       cat(ii, "B ", sep="")
+#     else if(!is.na(match(ii, c(root1, fifth1, third1))) && is.na(match(ii, c(root2, fifth2, third2))))
+#       cat(ii, "F ", sep="")
+#     else if(is.na(match(ii, c(root1, fifth1, third1))) && !is.na(match(ii, c(root2, fifth2, third2))))
+#       cat(ii, "S ", sep="")
+#     else
+#       cat("   ")
+#   }
+#   cat("\n")
+#   for(ii in 0:11)
+#   {
+#     if(MIR.Music.NoteBelongsToKey(ii, key))
+#       cat(ii, "  ", sep="")
+#     else
+#       cat("   ")
+#   }
+#   cat("\n")
+#   for(ii in 0:11)
+#     cat(ii, "  ", sep="")
+#   cat("\n")
   
   disagreeingNotes <- 0
   if(root1 != root2)
