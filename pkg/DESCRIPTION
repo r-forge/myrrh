@@ -1,10 +1,10 @@
 Package: myrrh
-Version: 0.1
+Version: 0.2
 Date: 2007-10-23
 Title: A collection of Music Information Retrieval (MIR) tools for GNU R
 Author: Stanislaw Andrzej Raczynski <raczynski@hil.t.u-tokyo.ac.jp>
 Maintainer: Stanislaw Andrzej Raczynski <raczynski@hil.t.u-tokyo.ac.jp>
-Depends: R (>= 1.8.0), tuneR, sound
+Depends: R (>= 1.8.0), tuneR, sound, R.oo
 Description: A short (one paragraph) description of what
 	the package does and why it may be useful.
 License: GPL-2

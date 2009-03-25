@@ -1,7 +1,4 @@
 
-#TODO:ustawianie precyzji macierzy midi
-#TODO:wywalic niepotrzebny kod timidity
-
 MIR.MIDI.NoteOn  <- function(noteNumber, velocity = 1.0) .C("noteOn",  as.integer(noteNumber), as.integer(velocity*127))
 MIR.MIDI.NoteOff <- function(noteNumber, velocity = 1.0) .C("noteOff", as.integer(noteNumber), as.integer(velocity*127))
 
@@ -38,10 +35,147 @@ MIR.MIDI.PlayMatrix <- function(pianoRoll, hop = 0.1, minNoteNumber = 0)
       MIR.MIDI.NoteOff(rowNumber + minNoteNumber - 1)
 }
 
-MIR.MIDI.Load <- function(filename)
+setConstructorS3("MIDI", function(filename)
 {
-  return(.Call("loadMIDI", as.character(filename)))
-}
+  midiData = .Call("loadMIDI", as.character(filename))
+	extend(Object(), "MIDI",
+			.midiData = midiData
+	);
+})
+
+setMethodS3("as.pianoroll", "MIDI", function(this, requantize = TRUE, newQuantization = 0.05, ...)
+{
+	GetAbsoluteTimes <- function(track, tempo, division)
+	{
+		absoluteTimes <- c()
+		quarterNote <- 0.5
+		currentTime <- 0.0
+		newTempoIndex <- 1
+		for(ii in 1:ncol(track))
+		{
+			newCurrentTime <- currentTime + (as.real(track[1, ii]) / division) * quarterNote
+			if((newCurrentTime >= tempo[newTempoIndex, 1]) && (newTempoIndex < nrow(tempo)))
+			{
+				quarterNote <- tempo[newTempoIndex, 2]
+				currentTempoIndex <- newTempoIndex + 1
+				currentTime <- currentTime + (as.real(track[1, ii]) / division) * quarterNote
+			}
+			else
+				currentTime <- newCurrentTime
+			absoluteTimes <- c(absoluteTimes, currentTime)
+		}
+	}
+	
+	# 1. split the matrix into separate tracks
+	trackEnds <- which(this$.midiData[2,] == 5)
+	tracks <- list()
+	lastTrackEnd <- 1
+	trackNr <- 1
+	for(ii in trackEnds)
+	{
+		tracks[[trackNr]] <- this$.midiData[,lastTrackEnd:(ii-1)]
+		trackNr <- trackNr + 1
+		lastTrackEnd <- ii + 1
+	}
+	
+	# 2. make a list of all tempo changes
+	tempoChanges = rep(FALSE, length(tracks))
+	for(ii in 1:length(tracks))
+		if(length(which(tracks[[ii]][2,] == 0)) > 0)
+			tempoChanges[ii] = TRUE
+	if(length(which(tempoChanges)) != 1)
+	{
+		cat("Tempo must only change in exactly one track!\n")
+		return(NULL)
+	}
+	tempoChanges <- which(tempoChanges)
+	if(length(which((tracks[[tempoChanges]][2,] != 0) & (tracks[[tempoChanges]][2,] != 6))) > 0)
+	{
+		cat("Tempo changes cannot be mixed with note events!\n")
+		return(NULL)
+	}
+	
+	division <- this$.midiData[4, which(this$.midiData[2,] == 6)]
+	if(division < 0)
+	{
+		cat("SMPTE time units are not supported!\n")
+		return(NULL)
+	}
+	quarterNote <- 0.5  # default is 120 BPM
+	currentTime <- 0.0
+	tempo <- matrix(0, ncol=2, nrow=0)
+	for(ii in 1:ncol(tracks[[tempoChanges]]))
+	{
+		currentTime <- currentTime + (as.real(tracks[[tempoChanges]][1, ii]) / division) * quarterNote
+		if(tracks[[tempoChanges]][2, ii] == 0)
+			quarterNote <- (tracks[[tempoChanges]][3, ii]*256*256 + tracks[[tempoChanges]][4, ii]*256 + tracks[[tempoChanges]][5, ii]) / 1000000
+		tempo <- rbind(tempo, c(currentTime, quarterNote))
+	}
+	newTempo <- tempo[nrow(tempo), ]
+	for(ii in (nrow(tempo)-1):1)
+	{
+		if(tempo[ii,1] != tempo[ii+1,1])
+			newTempo <- rbind(tempo[ii,], newTempo)
+	}
+	tempo <- matrix(newTempo, ncol=2)  # a hack
+	tracks <- tracks[-tempoChanges]
+	
+	# 3. calculate maximum time
+	noteMatrix <- matrix(0.0, ncol=4, nrow=0)
+	maxTime    <- 0
+	for(track in 1:length(tracks))
+	{
+		absoluteTimes <- GetAbsoluteTimes(tracks[[track]], tempo, division)
+		if(max(absoluteTimes) > maxTime)
+			maxTime <- max(absoluteTimes)
+	}
+	
+	# 4. get the piano roll matrix
+	pianoRoll <- matrix(0, nrow=128, ncol=ceiling(maxTime / newQuantization))
+	for(track in 1:length(tracks))
+	{
+		absoluteTimes <- GetAbsoluteTimes(tracks[[track]], tempo, division)
+		isNoteOn  <- tracks[[track]][2,] == 1
+		isNoteOff <- tracks[[track]][2,] == 2
+		noteOnNotes  <- tracks[[track]][4, isNoteOn]
+		noteOnVeloc  <- as.real(tracks[[track]][5, isNoteOn]) / 127.0
+		noteOnTimes  <- absoluteTimes[isNoteOn]
+		noteOffNotes <- tracks[[track]][4, isNoteOff]
+		noteOffVeloc <- -as.real(tracks[[track]][5, isNoteOff]) / 127.0
+		noteOffTimes <- absoluteTimes[isNoteOff]
+		for(note in 1:128)
+		{
+			cat("note ", note, "\n")
+			noteEvents <- rbind(cbind(noteOnTimes[noteOnNotes == note], noteOnVeloc[noteOnNotes == note]),
+					cbind(noteOffTimes[noteOffNotes == note], noteOffVeloc[noteOffNotes == note]))
+			if(!is.matrix(noteEvents))
+				noteEvents <- matrix(noteEvents, ncol=2)   # another hack
+			if(nrow(noteEvents) == 0)
+				next
+			noteEvents <- noteEvents[sort(noteEvents[,1], index.return=T)$ix,]
+			if(!is.matrix(noteEvents))
+				noteEvents <- matrix(noteEvents, ncol=2)   # hack hack hack
+			currentNoteEventIndex <- 0
+			currentAmplitude <- 0.0
+			for(ii in 1:ncol(pianoRoll))
+			{
+				time <- (ii - 1) * newQuantization
+				if((currentNoteEventIndex < nrow(noteEvents)) && (time >= noteEvents[currentNoteEventIndex + 1, 1]))
+				{
+					currentNoteEventIndex <- currentNoteEventIndex + 1
+					currentAmplitude      <- currentAmplitude + noteEvents[currentNoteEventIndex, 2]
+					if(currentAmplitude > 1.0)
+						currentAmplitude <- 1.0
+					if(currentAmplitude < 0.0)
+						currentAmplitude <- 0.0
+				}
+				pianoRoll[note, ii] <- currentAmplitude
+			}
+		}
+	}
+	
+	return(pianoRoll)
+})
 
 #This function writes a simple one-track MIDI file
 MIR.MIDI.Save <- function(activityMatrix, filename, msPerColumn, minMIDInote, overwrite=TRUE)
@@ -142,101 +276,101 @@ MIR.MIDI.Save <- function(activityMatrix, filename, msPerColumn, minMIDInote, ov
   close(MIDIfile)
 }
 
-generateInstrumentSound <- function(note, samplingFrequency=11025, sampleLength=11025, ADSR_A=0.01, ADSR_D=0.1, ADSR_S=0.29, ADSR_R=0.6, sustainLevel=0.15, partials=4)
-{
-  # Generate the sound
-  instrumentSound <- rep(0, sampleLength)
-  frequency <- 440 * 2^(note / 12)   # physical frequency
-  frequency <- frequency / samplingFrequency
-  for(partial in 1:partials)
-  {
-    if(partial - floor(partial / 2) * 2 == 0)
-      instrumentSound <- instrumentSound + sin(frequency * partial * 2 * pi * (1:sampleLength - 1)) / (partial^2)
-    else
-      instrumentSound <- instrumentSound + sin(frequency * partial * 2 * pi * (1:sampleLength - 1)) / (partial)
-  }
-
-  # Create the sound envelope
-  a <- 1 / (sampleLength * ADSR_A)
-  for(sampleNumber in 1:(sampleLength * ADSR_A))
-    instrumentSound[sampleNumber] <- instrumentSound[sampleNumber] * a * sampleNumber
-
-  a <- (1 - sustainLevel) / (sampleLength * ADSR_D)
-  for(sampleNumber in (sampleLength * ADSR_A):(sampleLength * (ADSR_A + ADSR_D)))
-    instrumentSound[sampleNumber] <- instrumentSound[sampleNumber] * (1 - a * (sampleNumber - sampleLength * ADSR_A))
-
-  for(sampleNumber in (sampleLength * (ADSR_A + ADSR_D)):(sampleLength * (ADSR_A + ADSR_D + ADSR_S)))
-    instrumentSound[sampleNumber] <- instrumentSound[sampleNumber] * sustainLevel
-
-  a <- sustainLevel / (sampleLength * ADSR_R)
-  for(sampleNumber in (sampleLength * (ADSR_A + ADSR_D + ADSR_S)):sampleLength)
-    instrumentSound[sampleNumber] <- instrumentSound[sampleNumber] * (sustainLevel - a * (sampleNumber - sampleLength * (ADSR_A + ADSR_D + ADSR_S)))
-
-  return(instrumentSound)
-}
-
-createSoundFromNoteOnsets <- function(noteActivities, minNote, frameLength, samplingFrequency=11025)
-{
-  noteCount  <- dim(noteActivities)[1]
-  songLength <- dim(noteActivities)[2]
-
-  # Generate note sounds
-  noteSounds <- matrix(0, nrow=noteCount, ncol=samplingFrequency)  # sound length of 1s
-  for(ii in 1:noteCount)
-    noteSounds[ii,] <- generateInstrumentSound(ii + minNote - 1, partials=1)
-
-  # Generate the song
-  songSound <- rep(0, songLength * frameLength + samplingFrequency)
-
-  for(noteNumber in 1:noteCount)
-  {
-    cat("Generating sound for note ", noteNumber)
-    for(jj in 2:songLength)
-    {
-      if((noteActivities[noteNumber, jj] > 0) && (noteActivities[noteNumber, jj-1] == 0))
-      {
-        cat(".")
-        noteBegin <- (jj - 1) * frameLength + 1
-        noteEnd   <- noteBegin + samplingFrequency
-        songSound[noteBegin:noteEnd] <- songSound[noteBegin:noteEnd] + noteSounds[noteNumber,] * noteActivities[noteNumber, jj]
-#         songSound[noteBegin:noteEnd] <- songSound[noteBegin:noteEnd] + noteSounds[noteNumber,]
-      }
-    }
-    cat("\n")
-  }
-
-  return(songSound)
-}
-
-createSoundFromNoteOnsets.old <- function(noteActivities, minNote, frameLength, samplingFrequency=11025)
-{
-  noteCount  <- dim(noteActivities)[1]
-  songLength <- dim(noteActivities)[2]
-
-  # Generate note sounds
-  noteSounds <- matrix(0, nrow=noteCount, ncol=samplingFrequency)  # sound length of 1s
-  for(ii in 1:noteCount)
-    noteSounds[ii,] <- generateInstrumentSound(ii + minNote - 1)
-
-  # Generate the song
-  songSound <- rep(0, songLength * frameLength + samplingFrequency)
-
-  for(noteNumber in 1:noteCount)
-  {
-    cat("Generating sound for note ", noteNumber)
-    for(jj in 1:songLength)
-    {
-      if(noteActivities[noteNumber, jj] > 0)
-      {
-        cat(".")
-        noteBegin <- (jj - 1) * frameLength + 1
-        noteEnd   <- noteBegin + samplingFrequency
-        songSound[noteBegin:noteEnd] <- songSound[noteBegin:noteEnd] + noteSounds[noteNumber,] * noteActivities[noteNumber, jj]
-#         songSound[noteBegin:noteEnd] <- songSound[noteBegin:noteEnd] + noteSounds[noteNumber,]
-      }
-    }
-    cat("\n")
-  }
-
-  return(songSound)
-}
+#generateInstrumentSound <- function(note, samplingFrequency=11025, sampleLength=11025, ADSR_A=0.01, ADSR_D=0.1, ADSR_S=0.29, ADSR_R=0.6, sustainLevel=0.15, partials=4)
+#{
+#  # Generate the sound
+#  instrumentSound <- rep(0, sampleLength)
+#  frequency <- 440 * 2^(note / 12)   # physical frequency
+#  frequency <- frequency / samplingFrequency
+#  for(partial in 1:partials)
+#  {
+#    if(partial - floor(partial / 2) * 2 == 0)
+#      instrumentSound <- instrumentSound + sin(frequency * partial * 2 * pi * (1:sampleLength - 1)) / (partial^2)
+#    else
+#      instrumentSound <- instrumentSound + sin(frequency * partial * 2 * pi * (1:sampleLength - 1)) / (partial)
+#  }
+#
+#  # Create the sound envelope
+#  a <- 1 / (sampleLength * ADSR_A)
+#  for(sampleNumber in 1:(sampleLength * ADSR_A))
+#    instrumentSound[sampleNumber] <- instrumentSound[sampleNumber] * a * sampleNumber
+#
+#  a <- (1 - sustainLevel) / (sampleLength * ADSR_D)
+#  for(sampleNumber in (sampleLength * ADSR_A):(sampleLength * (ADSR_A + ADSR_D)))
+#    instrumentSound[sampleNumber] <- instrumentSound[sampleNumber] * (1 - a * (sampleNumber - sampleLength * ADSR_A))
+#
+#  for(sampleNumber in (sampleLength * (ADSR_A + ADSR_D)):(sampleLength * (ADSR_A + ADSR_D + ADSR_S)))
+#    instrumentSound[sampleNumber] <- instrumentSound[sampleNumber] * sustainLevel
+#
+#  a <- sustainLevel / (sampleLength * ADSR_R)
+#  for(sampleNumber in (sampleLength * (ADSR_A + ADSR_D + ADSR_S)):sampleLength)
+#    instrumentSound[sampleNumber] <- instrumentSound[sampleNumber] * (sustainLevel - a * (sampleNumber - sampleLength * (ADSR_A + ADSR_D + ADSR_S)))
+#
+#  return(instrumentSound)
+#}
+#
+#createSoundFromNoteOnsets <- function(noteActivities, minNote, frameLength, samplingFrequency=11025)
+#{
+#  noteCount  <- dim(noteActivities)[1]
+#  songLength <- dim(noteActivities)[2]
+#
+#  # Generate note sounds
+#  noteSounds <- matrix(0, nrow=noteCount, ncol=samplingFrequency)  # sound length of 1s
+#  for(ii in 1:noteCount)
+#    noteSounds[ii,] <- generateInstrumentSound(ii + minNote - 1, partials=1)
+#
+#  # Generate the song
+#  songSound <- rep(0, songLength * frameLength + samplingFrequency)
+#
+#  for(noteNumber in 1:noteCount)
+#  {
+#    cat("Generating sound for note ", noteNumber)
+#    for(jj in 2:songLength)
+#    {
+#      if((noteActivities[noteNumber, jj] > 0) && (noteActivities[noteNumber, jj-1] == 0))
+#      {
+#        cat(".")
+#        noteBegin <- (jj - 1) * frameLength + 1
+#        noteEnd   <- noteBegin + samplingFrequency
+#        songSound[noteBegin:noteEnd] <- songSound[noteBegin:noteEnd] + noteSounds[noteNumber,] * noteActivities[noteNumber, jj]
+##         songSound[noteBegin:noteEnd] <- songSound[noteBegin:noteEnd] + noteSounds[noteNumber,]
+#      }
+#    }
+#    cat("\n")
+#  }
+#
+#  return(songSound)
+#}
+#
+#createSoundFromNoteOnsets.old <- function(noteActivities, minNote, frameLength, samplingFrequency=11025)
+#{
+#  noteCount  <- dim(noteActivities)[1]
+#  songLength <- dim(noteActivities)[2]
+#
+#  # Generate note sounds
+#  noteSounds <- matrix(0, nrow=noteCount, ncol=samplingFrequency)  # sound length of 1s
+#  for(ii in 1:noteCount)
+#    noteSounds[ii,] <- generateInstrumentSound(ii + minNote - 1)
+#
+#  # Generate the song
+#  songSound <- rep(0, songLength * frameLength + samplingFrequency)
+#
+#  for(noteNumber in 1:noteCount)
+#  {
+#    cat("Generating sound for note ", noteNumber)
+#    for(jj in 1:songLength)
+#    {
+#      if(noteActivities[noteNumber, jj] > 0)
+#      {
+#        cat(".")
+#        noteBegin <- (jj - 1) * frameLength + 1
+#        noteEnd   <- noteBegin + samplingFrequency
+#        songSound[noteBegin:noteEnd] <- songSound[noteBegin:noteEnd] + noteSounds[noteNumber,] * noteActivities[noteNumber, jj]
+##         songSound[noteBegin:noteEnd] <- songSound[noteBegin:noteEnd] + noteSounds[noteNumber,]
+#      }
+#    }
+#    cat("\n")
+#  }
+#
+#  return(songSound)
+#}
