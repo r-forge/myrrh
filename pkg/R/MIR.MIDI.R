@@ -129,6 +129,7 @@ setMethodS3("as.pianoroll", "MIDI", function(this, requantize = TRUE, newQuantiz
 		if(max(absoluteTimes) > maxTime)
 			maxTime <- max(absoluteTimes)
 	}
+  cat("Max time = ", maxTime, "\nCalculating")
 	
 	# 4. get the piano roll matrix
 	pianoRoll <- matrix(0, nrow=128, ncol=ceiling(maxTime / newQuantization))
@@ -145,7 +146,7 @@ setMethodS3("as.pianoroll", "MIDI", function(this, requantize = TRUE, newQuantiz
 		noteOffTimes <- absoluteTimes[isNoteOff]
 		for(note in 1:128)
 		{
-			cat("note ", note, "\n")
+			cat(".")
 			noteEvents <- rbind(cbind(noteOnTimes[noteOnNotes == note], noteOnVeloc[noteOnNotes == note]),
 					cbind(noteOffTimes[noteOffNotes == note], noteOffVeloc[noteOffNotes == note]))
 			if(!is.matrix(noteEvents))
@@ -173,6 +174,7 @@ setMethodS3("as.pianoroll", "MIDI", function(this, requantize = TRUE, newQuantiz
 			}
 		}
 	}
+  cat("\n")
 	
 	return(pianoRoll)
 })
