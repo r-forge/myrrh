@@ -2,6 +2,12 @@
 MIR.MIDI.NoteOn  <- function(noteNumber, velocity = 1.0) .C("noteOn",  as.integer(noteNumber), as.integer(velocity*127))
 MIR.MIDI.NoteOff <- function(noteNumber, velocity = 1.0) .C("noteOff", as.integer(noteNumber), as.integer(velocity*127))
 
+MIR.MIDI.AllNotesOff <- function(noteNumber)
+{
+  for(ii in 0:127)
+    MIR.MIDI.NoteOff(ii)
+}
+
 MIR.MIDI.PlayNote <- function(noteNumber, duration = 0.5)
 {
   MIR.MIDI.NoteOn(noteNumber)
@@ -38,146 +44,154 @@ MIR.MIDI.PlayMatrix <- function(pianoRoll, hop = 0.1, minNoteNumber = 0)
 setConstructorS3("MIDI", function(filename)
 {
   midiData = .Call("loadMIDI", as.character(filename))
-	extend(Object(), "MIDI",
-			.midiData = midiData
-	);
+  if(is.null(midiData))
+    throw("Error while loading the MIDI file!")
+
+  division <- midiData[4, which(midiData[2,] == 6)]
+  if(division < 0)
+    throw("SMPTE time units are not supported!\n")
+  quarterNote <- 0.5  # default is 120 QPM
+  currentTime <- 0
+  tempo  <- matrix(0, ncol=3, nrow=0)
+  events <- matrix(0, ncol=4, nrow=0) 
+  for(ii in 1:ncol(midiData))
+  {
+    currentTime <- currentTime + midiData[1, ii]
+    if(midiData[2,ii] == 5)
+      currentTime <- 0
+    else if(midiData[2,ii] == 0)
+    {
+      quarterNote  <- (midiData[3, ii]*65536 + midiData[4, ii]*256 + midiData[5, ii]) / 1000000
+      if(nrow(tempo) == 0)
+        tempo <- rbind(tempo, c(currentTime, quarterNote, currentTime * 0.5))
+      else
+      {
+        midiTimeDiff <- currentTime - tempo[nrow(tempo), 1]
+        tempo <- rbind(tempo, c(currentTime, quarterNote, tempo[nrow(tempo), 3] + midiTimeDiff * tempo[nrow(tempo), 2] / division))
+      }
+    }
+    else if((midiData[2,ii] == 1) || (midiData[2,ii] == 2) || (midiData[2,ii] == 3) || (midiData[2,ii] == 4))
+      events <- rbind(events, c(currentTime, midiData[2,ii], midiData[4,ii], midiData[5,ii]))
+  }
+  if(!is.matrix(events))
+    throw("There were no events!")
+  if(nrow(tempo) > 1)
+  {
+    newTempo <- tempo[nrow(tempo), ]
+    for(ii in (nrow(tempo)-1):1)   # this is to get rid of tempo changes in the same delta time.... is it necessary? I don't remember how it got here actually
+    {
+      if(tempo[ii,1] != tempo[ii+1,1])
+        newTempo <- rbind(tempo[ii,], newTempo)
+    }
+    tempo  <- matrix(newTempo, ncol=3)  # a hack, there might not have been any tempo changes and we get a vector instead of a matrix
+  }
+
+  # Convert all midi times to absolute times and sort the event list
+  for(ii in 1:nrow(events))
+  {
+    tempos       <- which(tempo[,1] <= events[ii,1])
+    lastTempo    <- tempo[length(tempos), ]
+    events[ii,1] <- lastTempo[3] + lastTempo[2] * (events[ii,1] - lastTempo[1]) / division
+  }
+  events <- events[sort(events[,1], index.return=TRUE)$ix, ]
+  events[,4] <- events[,4] / 127.0
+
+  extend(Object(), "MIDI",
+    .midiData = midiData,
+    .events   = events,
+    .filename = filename,
+    .division = division,
+    .tempo    = tempo
+  );
+})
+
+setMethodS3("plot", "MIDI", function(this, requantize = TRUE, newQuantization = 0.05, ...)
+{
+  image(t(this$as.pianoroll(requantize, newQuantization)), col=rgb(seq(1,0,length.out=256), seq(1,0,length.out=256), seq(1,0,length.out=256)))
+})
+
+setMethodS3("tempo", "MIDI", function(this, timeinquarternotes = FALSE, ...)
+{
+  if(timeinquarternotes)
+    return(cbind(this$.tempo[,1] / this$.division, 60.0 / this$.tempo[,2]))
+  else
+    return(cbind(this$.tempo[,3], 60.0 / this$.tempo[,2]))
 })
 
 setMethodS3("as.pianoroll", "MIDI", function(this, requantize = TRUE, newQuantization = 0.05, ...)
 {
-	GetAbsoluteTimes <- function(track, tempo, division)
-	{
-		absoluteTimes <- c()
-		quarterNote <- 0.5
-		currentTime <- 0.0
-		newTempoIndex <- 1
-		for(ii in 1:ncol(track))
-		{
-			newCurrentTime <- currentTime + (as.real(track[1, ii]) / division) * quarterNote
-			if((newCurrentTime >= tempo[newTempoIndex, 1]) && (newTempoIndex < nrow(tempo)))
-			{
-				quarterNote <- tempo[newTempoIndex, 2]
-				currentTempoIndex <- newTempoIndex + 1
-				currentTime <- currentTime + (as.real(track[1, ii]) / division) * quarterNote
-			}
-			else
-				currentTime <- newCurrentTime
-			absoluteTimes <- c(absoluteTimes, currentTime)
-		}
-	}
-	
-	# 1. split the matrix into separate tracks
-	trackEnds <- which(this$.midiData[2,] == 5)
-	tracks <- list()
-	lastTrackEnd <- 1
-	trackNr <- 1
-	for(ii in trackEnds)
-	{
-		tracks[[trackNr]] <- this$.midiData[,lastTrackEnd:(ii-1)]
-		trackNr <- trackNr + 1
-		lastTrackEnd <- ii + 1
-	}
-	
-	# 2. make a list of all tempo changes
-	tempoChanges = rep(FALSE, length(tracks))
-	for(ii in 1:length(tracks))
-		if(length(which(tracks[[ii]][2,] == 0)) > 0)
-			tempoChanges[ii] = TRUE
-	if(length(which(tempoChanges)) != 1)
-	{
-		cat("Tempo must only change in exactly one track!\n")
-		return(NULL)
-	}
-	tempoChanges <- which(tempoChanges)
-	if(length(which((tracks[[tempoChanges]][2,] != 0) & (tracks[[tempoChanges]][2,] != 6))) > 0)
-	{
-		cat("Tempo changes cannot be mixed with note events!\n")
-		return(NULL)
-	}
-	
-	division <- this$.midiData[4, which(this$.midiData[2,] == 6)]
-	if(division < 0)
-	{
-		cat("SMPTE time units are not supported!\n")
-		return(NULL)
-	}
-	quarterNote <- 0.5  # default is 120 BPM
-	currentTime <- 0.0
-	tempo <- matrix(0, ncol=2, nrow=0)
-	for(ii in 1:ncol(tracks[[tempoChanges]]))
-	{
-		currentTime <- currentTime + (as.real(tracks[[tempoChanges]][1, ii]) / division) * quarterNote
-		if(tracks[[tempoChanges]][2, ii] == 0)
-			quarterNote <- (tracks[[tempoChanges]][3, ii]*256*256 + tracks[[tempoChanges]][4, ii]*256 + tracks[[tempoChanges]][5, ii]) / 1000000
-		tempo <- rbind(tempo, c(currentTime, quarterNote))
-	}
-	newTempo <- tempo[nrow(tempo), ]
-	for(ii in (nrow(tempo)-1):1)
-	{
-		if(tempo[ii,1] != tempo[ii+1,1])
-			newTempo <- rbind(tempo[ii,], newTempo)
-	}
-	tempo <- matrix(newTempo, ncol=2)  # a hack
-	tracks <- tracks[-tempoChanges]
-	
-	# 3. calculate maximum time
-	noteMatrix <- matrix(0.0, ncol=4, nrow=0)
-	maxTime    <- 0
-	for(track in 1:length(tracks))
-	{
-		absoluteTimes <- GetAbsoluteTimes(tracks[[track]], tempo, division)
-		if(max(absoluteTimes) > maxTime)
-			maxTime <- max(absoluteTimes)
-	}
-  cat("Max time = ", maxTime, "\nCalculating")
-	
-	# 4. get the piano roll matrix
-	pianoRoll <- matrix(0, nrow=128, ncol=ceiling(maxTime / newQuantization))
-	for(track in 1:length(tracks))
-	{
-		absoluteTimes <- GetAbsoluteTimes(tracks[[track]], tempo, division)
-		isNoteOn  <- tracks[[track]][2,] == 1
-		isNoteOff <- tracks[[track]][2,] == 2
-		noteOnNotes  <- tracks[[track]][4, isNoteOn]
-		noteOnVeloc  <- as.real(tracks[[track]][5, isNoteOn]) / 127.0
-		noteOnTimes  <- absoluteTimes[isNoteOn]
-		noteOffNotes <- tracks[[track]][4, isNoteOff]
-		noteOffVeloc <- -as.real(tracks[[track]][5, isNoteOff]) / 127.0
-		noteOffTimes <- absoluteTimes[isNoteOff]
-		for(note in 1:128)
-		{
-			cat(".")
-			noteEvents <- rbind(cbind(noteOnTimes[noteOnNotes == note], noteOnVeloc[noteOnNotes == note]),
-					cbind(noteOffTimes[noteOffNotes == note], noteOffVeloc[noteOffNotes == note]))
-			if(!is.matrix(noteEvents))
-				noteEvents <- matrix(noteEvents, ncol=2)   # another hack
-			if(nrow(noteEvents) == 0)
-				next
-			noteEvents <- noteEvents[sort(noteEvents[,1], index.return=T)$ix,]
-			if(!is.matrix(noteEvents))
-				noteEvents <- matrix(noteEvents, ncol=2)   # hack hack hack
-			currentNoteEventIndex <- 0
-			currentAmplitude <- 0.0
-			for(ii in 1:ncol(pianoRoll))
-			{
-				time <- (ii - 1) * newQuantization
-				if((currentNoteEventIndex < nrow(noteEvents)) && (time >= noteEvents[currentNoteEventIndex + 1, 1]))
-				{
-					currentNoteEventIndex <- currentNoteEventIndex + 1
-					currentAmplitude      <- currentAmplitude + noteEvents[currentNoteEventIndex, 2]
-					if(currentAmplitude > 1.0)
-						currentAmplitude <- 1.0
-					if(currentAmplitude < 0.0)
-						currentAmplitude <- 0.0
-				}
-				pianoRoll[note, ii] <- currentAmplitude
-			}
-		}
-	}
-  cat("\n")
-	
-	return(pianoRoll)
+  maxTime <- max(this$.events[,1])
+  pianoRoll <- matrix(0, nrow=128, ncol=ceiling(maxTime / newQuantization))
+  for(note in 1:128)
+  {
+    cat("Note ", note)
+    noteEvents <- matrix(this$.events[this$.events[,3] == note, ], ncol=4)
+    cat(" (", nrow(noteEvents), ")\n")
+    if(nrow(noteEvents) == 0)
+      next
+
+    currentNoteEventIndex <- 0
+    currentAmplitude <- 0.0
+    sustainPressed <- FALSE
+    sustaining     <- FALSE
+    for(ii in 1:ncol(pianoRoll))
+    {
+      time <- (ii - 1) * newQuantization
+      if((currentNoteEventIndex < nrow(noteEvents)) && (time >= noteEvents[currentNoteEventIndex + 1, 1]))
+      {
+        currentNoteEventIndex <- currentNoteEventIndex + 1
+        if(noteEvents[currentNoteEventIndex, 2] == 1)  # note on
+          currentAmplitude <- noteEvents[currentNoteEventIndex, 4]
+        else if((noteEvents[currentNoteEventIndex, 2] == 2) || (noteEvents[currentNoteEventIndex, 2] == 4))  # note off or all off
+        {
+          if(sustainPressed)
+            sustaining <- TRUE
+          else
+#             currentAmplitude <- currentAmplitude - noteEvents[currentNoteEventIndex, 4]
+            currentAmplitude <- currentAmplitude - 1.0
+        }
+        else
+        {
+          if(noteEvents[currentNoteEventIndex, 4] == 0)
+          {
+            sustainPressed <- FALSE
+            if(sustaining)
+            {
+              currentAmplitude <- 0.0
+              sustaining <- FALSE
+            }
+          }
+          else
+            sustainPressed <- TRUE
+        }
+        if(currentAmplitude < 0.0)
+          currentAmplitude <- 0.0
+      }
+      pianoRoll[note, ii] <- currentAmplitude
+    }
+  }
+
+  return(pianoRoll)
 })
+
+setMethodS3("play", "MIDI", function(this, ...)
+{
+  for(ii in 1:nrow(this$.events))
+  {
+    if(this$.events[ii,2] == 1)
+    {
+      MIR.MIDI.NoteOn(this$.events[ii,3], this$.events[ii,4])
+      cat("Note on  ", this$.events[ii,3], " (", this$.events[ii,4], ")\n")
+    }
+    else if(this$.events[ii,2] == 2)
+    {
+      MIR.MIDI.NoteOff(this$.events[ii,3], this$.events[ii,4])
+      cat("Note off ", this$.events[ii,3], " (", this$.events[ii,4], ")\n")
+    }
+    if(ii < nrow(this$.events))
+      Sys.sleep(this$.events[ii+1,1] - this$.events[ii,1])
+  }
+})      
 
 #This function writes a simple one-track MIDI file
 MIR.MIDI.Save <- function(activityMatrix, filename, msPerColumn, minMIDInote, overwrite=TRUE)

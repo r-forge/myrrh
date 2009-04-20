@@ -17,13 +17,15 @@
 
 #define END_OF_TRACK 1
 
-#define EVENT_TEMPO 0
-#define EVENT_NOTEON 1
-#define EVENT_NOTEOFF 2
-#define EVENT_SUSTAIN 3
-#define EVENT_ALLOFF 4
-#define EVENT_EOT 5
+#define EVENT_TEMPO    0
+#define EVENT_NOTEON   1
+#define EVENT_NOTEOFF  2
+#define EVENT_SUSTAIN  3
+#define EVENT_ALLOFF   4
+#define EVENT_EOT      5
 #define EVENT_DIVISION 6
+#define EVENT_OTHER    100
+  // EVENT_OTHER is for ignored events and is used to hold only delta times
 
 const char *midiMagicChars = "MThd";
 const char *trackMagicChars = "MTrk";
@@ -42,7 +44,7 @@ typedef struct {
 typedef struct {
   uint32_t time;
   uint8_t type;
-  uint8_t a,b,c;
+  uint32_t a,b,c;
   struct rawEvent *nextEvent;
 } rawEvent;
 
@@ -203,6 +205,7 @@ int readMidiEvent(FILE *fp)
     Rprintf("SysEx event -- skipping\n");
     length = readVarLength(fp);
     fseek(fp, length, SEEK_CUR);             // skip it
+    addMidiEvent(time, EVENT_OTHER, 0, 0, 0);
   }
   else if(eventType == 0xFF)                 // meta event
   {
@@ -216,6 +219,7 @@ int readMidiEvent(FILE *fp)
     {
       Rprintf("%s", metaEventNames[(metaEventType > 7) ? 0 : metaEventType]);
       dumpstring(fp, length);
+      addMidiEvent(time, EVENT_OTHER, 0, 0, 0);
     }
     else
     {
@@ -239,6 +243,7 @@ int readMidiEvent(FILE *fp)
           fread(&c, 1, 1, fp);
           fread(&d, 1, 1, fp);
           Rprintf("%d/%d, %d MIDI clocks per metronome click, %d notated 32nd-notes in a MIDI quarter-note\n", a, b, c, d);
+          addMidiEvent(time, EVENT_OTHER, 0, 0, 0);
           break;
         case 0x59:   // key signature
           Rprintf("Key signature: ");
@@ -251,10 +256,12 @@ int readMidiEvent(FILE *fp)
             Rprintf("-minor\n");
           else
             Rprintf("-???\n");
+          addMidiEvent(time, EVENT_OTHER, 0, 0, 0);
           break;
         default:
           Rprintf("Unknown meta event 0x%02X\n", metaEventType);
           fseek(fp, length, SEEK_CUR);
+          addMidiEvent(time, EVENT_OTHER, 0, 0, 0);
           break;
       }
     }
@@ -295,6 +302,7 @@ int readMidiEvent(FILE *fp)
         switch(a)
         {
           case 7:  // main volume -- ignoring
+            addMidiEvent(time, EVENT_OTHER, 0, 0, 0);
             break;
           case 64:
             addMidiEvent(time, EVENT_SUSTAIN, channel, a, b);
@@ -304,15 +312,19 @@ int readMidiEvent(FILE *fp)
             break;
           default:
             //Rprintf("\tControl change event %d: %d -- ignoring\n", a, b);
+            addMidiEvent(time, EVENT_OTHER, 0, 0, 0);
             break;
         }
         break;
       case 4: // Program change
+        addMidiEvent(time, EVENT_OTHER, 0, 0, 0);
         break;
       case 5: // Channel pressure
+        addMidiEvent(time, EVENT_OTHER, 0, 0, 0);
         break;
       case 6: // Pitch wheel
         fread(&b, 1, 1, fp);
+        addMidiEvent(time, EVENT_OTHER, 0, 0, 0);
         break;
       default:
         Rprintf("This can't be happening: event type 0x%02x\n", midiEventType);
